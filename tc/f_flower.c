@@ -40,7 +40,10 @@ static void explain(void)
 	fprintf(stderr, "                       dst_ip [ IPV4-ADDR | IPV6-ADDR ] |\n");
 	fprintf(stderr, "                       src_ip [ IPV4-ADDR | IPV6-ADDR ] |\n");
 	fprintf(stderr, "                       dst_port PORT-NUMBER |\n");
-	fprintf(stderr, "                       src_port PORT-NUMBER }\n");
+	fprintf(stderr, "                       src_port PORT-NUMBER |\n");
+	fprintf(stderr, "                       enc_dst_ip [ IPV4-ADDR | IPV6-ADDR ] |\n");
+	fprintf(stderr, "                       enc_src_ip [ IPV4-ADDR | IPV6-ADDR ] |\n");
+	fprintf(stderr, "                       enc_key_id [ KEY-ID ] }\n");
 	fprintf(stderr,	"       FILTERID := X:Y:Z\n");
 	fprintf(stderr,	"       ACTION-SPEC := ... look at individual actions\n");
 	fprintf(stderr,	"\n");
@@ -120,8 +123,9 @@ static int flower_parse_ip_addr(char *str, __be16 eth_type,
 		family = AF_INET;
 	} else if (eth_type == htons(ETH_P_IPV6)) {
 		family = AF_INET6;
+	} else if (!eth_type) {
+		family = AF_UNSPEC;
 	} else {
-		fprintf(stderr, "Illegal \"eth_type\" for ip address\n");
 		return -1;
 	}
 
@@ -129,8 +133,10 @@ static int flower_parse_ip_addr(char *str, __be16 eth_type,
 	if (ret)
 		return -1;
 
-	if (addr.family != family)
+	if (family && (addr.family != family)) {
+		fprintf(stderr, "Illegal \"eth_type\" for ip address\n");
 		return -1;
+	}
 
 	addattr_l(n, MAX_MSG, addr.family == AF_INET ? addr4_type : addr6_type,
 		  addr.data, addr.bytelen);
@@ -176,6 +182,20 @@ static int flower_parse_port(char *str, __u8 ip_port,
 		return -1;
 
 	addattr16(n, MAX_MSG, type, port);
+
+	return 0;
+}
+
+static int flower_parse_key_id(char *str, int type, struct nlmsghdr *n)
+{
+	int ret;
+	__be32 key_id;
+
+	ret = get_be32(&key_id, str, 10);
+	if (ret)
+		return -1;
+
+	addattr32(n, MAX_MSG, type, key_id);
 
 	return 0;
 }
@@ -336,6 +356,38 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 						TCA_FLOWER_KEY_UDP_SRC, n);
 			if (ret < 0) {
 				fprintf(stderr, "Illegal \"src_port\"\n");
+				return -1;
+			}
+		} else if (matches(*argv, "enc_dst_ip") == 0) {
+			NEXT_ARG();
+			ret = flower_parse_ip_addr(*argv, 0,
+						   TCA_FLOWER_KEY_ENC_IPV4_DST,
+						   TCA_FLOWER_KEY_ENC_IPV4_DST_MASK,
+						   TCA_FLOWER_KEY_ENC_IPV6_DST,
+						   TCA_FLOWER_KEY_ENC_IPV6_DST_MASK,
+						   n);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"enc_dst_ip\"\n");
+				return -1;
+			}
+		} else if (matches(*argv, "enc_src_ip") == 0) {
+			NEXT_ARG();
+			ret = flower_parse_ip_addr(*argv, 0,
+						   TCA_FLOWER_KEY_ENC_IPV4_SRC,
+						   TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK,
+						   TCA_FLOWER_KEY_ENC_IPV6_SRC,
+						   TCA_FLOWER_KEY_ENC_IPV6_SRC_MASK,
+						   n);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"enc_src_ip\"\n");
+				return -1;
+			}
+		} else if (matches(*argv, "enc_key_id") == 0) {
+			NEXT_ARG();
+			ret = flower_parse_key_id(*argv,
+						  TCA_FLOWER_KEY_ENC_KEY_ID, n);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"enc_key_id\"\n");
 				return -1;
 			}
 		} else if (matches(*argv, "action") == 0) {
@@ -508,6 +560,14 @@ static void flower_print_port(FILE *f, char *name, __u8 ip_proto,
 	fprintf(f, "\n  %s %d", name, ntohs(rta_getattr_u16(attr)));
 }
 
+static void flower_print_key_id(FILE *f, char *name,
+				struct rtattr *attr)
+{
+	if (!attr)
+		return;
+	fprintf(f, "\n  %s %d", name, ntohl(rta_getattr_u32(attr)));
+}
+
 static int flower_print_opt(struct filter_util *qu, FILE *f,
 			    struct rtattr *opt, __u32 handle)
 {
@@ -575,6 +635,25 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	flower_print_port(f, "src_port", ip_proto,
 			  tb[TCA_FLOWER_KEY_TCP_SRC],
 			  tb[TCA_FLOWER_KEY_UDP_SRC]);
+
+	flower_print_ip_addr(f, "enc_dst_ip",
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_DST_MASK] ?
+			     htons(ETH_P_IP) : htons(ETH_P_IPV6),
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_DST],
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_DST_MASK],
+			     tb[TCA_FLOWER_KEY_ENC_IPV6_DST],
+			     tb[TCA_FLOWER_KEY_ENC_IPV6_DST_MASK]);
+
+	flower_print_ip_addr(f, "enc_src_ip",
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK] ?
+			     htons(ETH_P_IP) : htons(ETH_P_IPV6),
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_SRC],
+			     tb[TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK],
+			     tb[TCA_FLOWER_KEY_ENC_IPV6_SRC],
+			     tb[TCA_FLOWER_KEY_ENC_IPV6_SRC_MASK]);
+
+	flower_print_key_id(f, "enc_key_id",
+			    tb[TCA_FLOWER_KEY_ENC_KEY_ID]);
 
 	if (tb[TCA_FLOWER_FLAGS])  {
 		__u32 flags = rta_getattr_u32(tb[TCA_FLOWER_FLAGS]);
