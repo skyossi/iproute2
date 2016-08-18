@@ -1,0 +1,105 @@
+.TH "Tunnel metadata manipulation action in tc" 8 "10 Nov 2016" "iproute2" "Linux"
+
+.SH NAME
+tunnel_key - Tunnel metadata manipulation
+.SH SYNOPSIS
+.in +8
+.ti -8
+.BR tc " ... " "action tunnel_key" " { " release " | "
+.IR SET " }"
+
+.ti -8
+.IR SET " := "
+.BR set " " src_ip
+.IR ADDRESS
+.BR dst_ip
+.IR ADDRESS
+.BI id " KEY_ID"
+
+.SH DESCRIPTION
+The
+.B tunnel_key
+action allows to perform IP tunnel en- or decapsulation on a packet, reflected by
+the operation modes
+.IR RELEASE " and " SET .
+The
+.I RELEASE
+mode is simple, as no further information is required to just drop the
+metadata attached to the skb. The
+.IR SET
+mode requires the source and destination ip
+.I ADDRESS
+and the tunnel key id
+.I KEY_ID
+which will be used by the ip tunnel shared device to create the tunnel header. The
+.B tunnel_key
+action is useful only in combination with a
+.B mirred redirect
+action to a shared IP tunnel device which will use the metadata (for
+.I SET
+) and release the metadata created by it (for
+.I RELEASE
+).
+
+.SH OPTIONS
+.TP
+.B release
+Decapsulation mode, no further arguments allowed.
+.TP
+.B set
+Encapsulation mode. Requires
+.B id
+,
+.B src_ip
+and
+.B dst_ip
+options.
+.RS
+.TP
+.B id
+Tunnel ID (for example VNI in VXLAN tunnel)
+.TP
+.B src_ip
+Outer header source IP address (IPv4 or IPv6)
+.TP
+.B dst_ip
+Outer header destination IP address (IPv4 or IPv6)
+.RE
+.SH EXAMPLES
+The following example encapsulates incoming ICMP packets on eth0 into a vxlan
+tunnel by setting metadata to VNI 11, source IP 11.11.0.1 and destination IP
+11.11.0.1 by forwarding the skb with the metadata to device vxlan0, which will
+prepare the VXLAN headers:
+
+.RS
+.EX
+#tc qdisc add dev eth0 handle ffff: ingress
+#tc filter add dev eth0 protocol ip parent ffff: \\
+  flower \\
+    ip_proto icmp \\
+  action tunnel_key set \\
+    src_ip 11.11.0.1 \\
+    dst_ip 11.11.0.2 \\
+    id 11 \\
+  action mirred egress redirect dev vxlan0
+.EE
+.RE
+
+Here is an example of the
+.B release
+function: Incoming VXLAN packets on vxlan0 with specific outer IP's and VNI 11
+in the metadata are decapsulated and redirected to eth0:
+
+.RS
+.EX
+#tc qdisc add dev eth0 handle ffff: ingress
+#tc filter add dev vxlan0 protocol ip parent ffff: \
+  flower \\
+	  enc_src_ip 11.11.0.2 enc_dst_ip 11.11.0.1 enc_key_id 11 \
+	action tunnel_key release \
+	action mirred egress redirect dev eth0
+.EE
+.RE
+
+.SH SEE ALSO
+.BR tc (8)
