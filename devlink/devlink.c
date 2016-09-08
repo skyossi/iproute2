@@ -1012,6 +1012,9 @@ static bool dl_dump_filter(struct dl *dl, struct nlattr **tb)
 static void cmd_dev_help(void)
 {
 	pr_err("Usage: devlink dev show [ DEV ]\n");
+	pr_err("       devlink dev eswitch set DEV [ mode { legacy | switchdev } ]\n");
+	pr_err("                               [ inline-mode { none | link | network | transport } ]\n");
+	pr_err("       devlink dev eswitch show DEV\n");
 }
 
 static bool cmp_arr_last_handle(struct dl *dl, const char *bus_name,
@@ -1338,7 +1341,10 @@ static int cmd_dev_eswitch_set(struct dl *dl)
 
 static int cmd_dev_eswitch(struct dl *dl)
 {
-	if (dl_argv_match(dl, "set")) {
+	if (dl_argv_match(dl, "help") || dl_no_arg(dl)) {
+		cmd_dev_help();
+		return 0;
+	} else if (dl_argv_match(dl, "set")) {
 		dl_arg_inc(dl);
 		return cmd_dev_eswitch_set(dl);
 	} else if (dl_argv_match(dl, "show")) {
