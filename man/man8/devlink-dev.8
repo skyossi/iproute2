@@ -31,6 +31,9 @@ devlink-dev \- devlink device configuration
 .RI "[ "
 .BR mode " { " legacy " | " switchdev " } "
 .RI "]"
+.RI "[ "
+.BR inline-mode " { " none " | " link " | " network " | " transport " } "
+.RI "]"
 
 .ti -8
 .BR "devlink dev eswitch show"
@@ -61,6 +64,22 @@ set eswitch mode
 
 .I switchdev
 - SRIOV switchdev offloads
+
+.TP
+.BR inline-mode " { " none " | " link " | " network " | " transport " } "
+set eswitch inline-mode
+
+.I none
+- None
+
+.I link
+- Link
+
+.I network
+- Network
+
+.I transport
+- Transport
 
 .SH "EXAMPLES"
 .PP
