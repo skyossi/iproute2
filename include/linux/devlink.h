@@ -147,6 +147,7 @@ enum devlink_attr {
 	DEVLINK_ATTR_SB_OCC_MAX,		/* u32 */
 	DEVLINK_ATTR_ESWITCH_MODE,		/* u16 */
 	DEVLINK_ATTR_ESWITCH_INLINE_MODE,	/* u8 */
+	DEVLINK_ATTR_ESWITCH_ENCAP,		/* u8 */
 
 	/* add new attributes above here, update the policy in devlink.c */
 
