@@ -34,6 +34,9 @@ devlink-dev \- devlink device configuration
 .RI "[ "
 .BR inline-mode " { " none " | " link " | " network " | " transport " } "
 .RI "]"
+.RI "[ "
+.BR encap " { " none " | " ipv4 " | " ipv6 " } "
+.RI "]"
 
 .ti -8
 .BR "devlink dev eswitch show"
@@ -80,6 +83,19 @@ set eswitch inline-mode
 
 .I transport
 - Transport
+
+.TP
+.BR encap " { " none " | " ipv4 " | " ipv6 " } "
+set eswitch encapsulation control
+
+.I none
+- None
+
+.I ipv4
+- ipv4
+
+.I ipv6
+- ipv6
 
 .SH "EXAMPLES"
 .PP
