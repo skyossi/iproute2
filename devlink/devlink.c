@@ -32,6 +32,9 @@
 #define ESWITCH_INLINE_MODE_LINK "link"
 #define ESWITCH_INLINE_MODE_NETWORK "network"
 #define ESWITCH_INLINE_MODE_TRANSPORT "transport"
+#define ESWITCH_ENCAP_NONE "none"
+#define ESWITCH_ENCAP_IPV4 "ipv4"
+#define ESWITCH_ENCAP_IPV6 "ipv6"
 
 #define pr_err(args...) fprintf(stderr, ##args)
 #define pr_out(args...) fprintf(stdout, ##args)
@@ -137,6 +140,7 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_SB_TC		BIT(10)
 #define DL_OPT_ESWITCH_MODE	BIT(11)
 #define DL_OPT_ESWITCH_INLINE_MODE	BIT(12)
+#define DL_OPT_ESWITCH_ENCAP	BIT(13)
 
 struct dl_opts {
 	uint32_t present; /* flags of present items */
@@ -154,6 +158,7 @@ struct dl_opts {
 	uint16_t sb_tc_index;
 	enum devlink_eswitch_mode eswitch_mode;
 	enum devlink_eswitch_inline_mode eswitch_inline_mode;
+	enum devlink_eswitch_encap eswitch_encap;
 };
 
 struct dl {
@@ -312,6 +317,9 @@ static int attr_cb(const struct nlattr *attr, void *data)
 	    mnl_attr_validate(attr, MNL_TYPE_U16) < 0)
 		return MNL_CB_ERROR;
 	if (type == DEVLINK_ATTR_ESWITCH_INLINE_MODE &&
+	    mnl_attr_validate(attr, MNL_TYPE_U8) < 0)
+		return MNL_CB_ERROR;
+	if (type == DEVLINK_ATTR_ESWITCH_ENCAP &&
 	    mnl_attr_validate(attr, MNL_TYPE_U8) < 0)
 		return MNL_CB_ERROR;
 	tb[type] = attr;
@@ -709,6 +717,22 @@ static int eswitch_inline_mode_get(const char *typestr,
 	return 0;
 }
 
+static int eswitch_encap_get(const char *typestr,
+				 enum devlink_eswitch_encap *p_mode)
+{
+	if (strcmp(typestr, ESWITCH_ENCAP_NONE) == 0) {
+		*p_mode = DEVLINK_ESWITCH_ENCAP_NONE;
+	} else if (strcmp(typestr, ESWITCH_ENCAP_IPV4) == 0) {
+		*p_mode = DEVLINK_ESWITCH_ENCAP_IPV4;
+	} else if (strcmp(typestr, ESWITCH_ENCAP_IPV6) == 0) {
+		*p_mode = DEVLINK_ESWITCH_ENCAP_IPV6;
+	} else {
+		pr_err("Unknown eswitch max encap \"%s\"\n", typestr);
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			 uint32_t o_optional)
 {
@@ -843,6 +867,19 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			if (err)
 				return err;
 			o_found |= DL_OPT_ESWITCH_INLINE_MODE;
+		} else if (dl_argv_match(dl, "encap") &&
+			   (o_all & DL_OPT_ESWITCH_ENCAP)) {
+			const char *typestr;
+
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &typestr);
+			if (err)
+				return err;
+			err = eswitch_encap_get(
+				typestr, &opts->eswitch_encap);
+			if (err)
+				return err;
+			o_found |= DL_OPT_ESWITCH_ENCAP;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -909,6 +946,12 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 		return -EINVAL;
 	}
 
+	if ((o_required & DL_OPT_ESWITCH_ENCAP) &&
+	    !(o_found & DL_OPT_ESWITCH_ENCAP)) {
+		pr_err("E-Switch encapsulation option expected.\n");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -958,6 +1001,9 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_ESWITCH_INLINE_MODE)
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_INLINE_MODE,
 				opts->eswitch_inline_mode);
+	if (opts->present & DL_OPT_ESWITCH_ENCAP)
+		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_ENCAP,
+				opts->eswitch_encap);
 }
 
 static int dl_argv_parse_put(struct nlmsghdr *nlh, struct dl *dl,
@@ -1014,6 +1060,7 @@ static void cmd_dev_help(void)
 	pr_err("Usage: devlink dev show [ DEV ]\n");
 	pr_err("       devlink dev eswitch set DEV [ mode { legacy | switchdev } ]\n");
 	pr_err("                               [ inline-mode { none | link | network | transport } ]\n");
+	pr_err("                               [ encap { none | ipv4 | ipv6 } ]\n");
 	pr_err("       devlink dev eswitch show DEV\n");
 }
 
@@ -1269,6 +1316,20 @@ static const char *eswitch_inline_mode_name(uint32_t mode)
 	}
 }
 
+static const char *eswitch_encap_name(uint32_t mode)
+{
+	switch (mode) {
+	case DEVLINK_ESWITCH_ENCAP_NONE:
+		return ESWITCH_ENCAP_NONE;
+	case DEVLINK_ESWITCH_ENCAP_IPV4:
+		return ESWITCH_ENCAP_IPV4;
+	case DEVLINK_ESWITCH_ENCAP_IPV6:
+		return ESWITCH_ENCAP_IPV6;
+	default:
+		return "<unknown mode>";
+	}
+}
+
 static void pr_out_eswitch(struct dl *dl, struct nlattr **tb)
 {
 	__pr_out_handle_start(dl, tb, true, false);
@@ -1281,6 +1342,11 @@ static void pr_out_eswitch(struct dl *dl, struct nlattr **tb)
 		pr_out_str(dl, "inline-mode",
 			   eswitch_inline_mode_name(mnl_attr_get_u8(
 				   tb[DEVLINK_ATTR_ESWITCH_INLINE_MODE])));
+
+	if (tb[DEVLINK_ATTR_ESWITCH_ENCAP])
+		pr_out_str(dl, "encap",
+			   eswitch_encap_name(mnl_attr_get_u8(
+				   tb[DEVLINK_ATTR_ESWITCH_ENCAP])));
 
 	pr_out_handle_end(dl);
 }
@@ -1326,7 +1392,8 @@ static int cmd_dev_eswitch_set(struct dl *dl)
 
 	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE,
 				DL_OPT_ESWITCH_MODE |
-				DL_OPT_ESWITCH_INLINE_MODE);
+				DL_OPT_ESWITCH_INLINE_MODE |
+				DL_OPT_ESWITCH_ENCAP);
 
 	if (err)
 		return err;
