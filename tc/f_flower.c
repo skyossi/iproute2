@@ -213,6 +213,20 @@ static int flower_parse_key_id(const char *str, int type, struct nlmsghdr *n)
 	return ret;
 }
 
+static int flower_parse_enc_port(char *str, int type, struct nlmsghdr *n)
+{
+	int ret;
+	__be16 port;
+
+	ret = get_be16(&port, str, 10);
+	if (ret)
+		return -1;
+
+	addattr16(n, MAX_MSG, type, port);
+
+	return 0;
+}
+
 static int flower_parse_opt(struct filter_util *qu, char *handle,
 			    int argc, char **argv, struct nlmsghdr *n)
 {
@@ -402,6 +416,13 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				fprintf(stderr, "Illegal \"enc_key_id\"\n");
 				return -1;
 			}
+		} else if (matches(*argv, "enc_dst_port") == 0) {
+			NEXT_ARG();
+			ret = flower_parse_enc_port(*argv, TCA_FLOWER_KEY_ENC_UDP_DST, n);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"enc_dst_port\"\n");
+				return -1;
+			}
 		} else if (matches(*argv, "action") == 0) {
 			NEXT_ARG();
 			ret = parse_action(&argc, &argv, TCA_FLOWER_ACT, n);
@@ -570,6 +591,15 @@ static void flower_print_key_id(FILE *f, const char *name,
 		fprintf(f, "\n  %s %d", name, rta_getattr_be32(attr));
 }
 
+static void flower_print_enc_port(FILE *f, char *name,
+				  struct rtattr *attr)
+{
+
+	if (!attr)
+		return;
+	fprintf(f, "\n  %s %d", name, ntohs(rta_getattr_u16(attr)));
+}
+
 static int flower_print_opt(struct filter_util *qu, FILE *f,
 			    struct rtattr *opt, __u32 handle)
 {
@@ -656,6 +686,9 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 
 	flower_print_key_id(f, "enc_key_id",
 			    tb[TCA_FLOWER_KEY_ENC_KEY_ID]);
+
+	flower_print_enc_port(f, "enc_dst_port",
+			      tb[TCA_FLOWER_KEY_ENC_UDP_DST]);
 
 	if (tb[TCA_FLOWER_FLAGS]) {
 		__u32 flags = rta_getattr_u32(tb[TCA_FLOWER_FLAGS]);
