@@ -675,7 +675,8 @@ static int verify_forging(int fd)
 static void xstat_usage(void)
 {
 	fprintf(stderr,
-"Usage: ifstat supported xstats:\n");
+"Usage: ifstat supported xstats:\n"
+"	s         SW stats. Counts only packets that went via the CPU\n");
 
 }
 
@@ -687,6 +688,7 @@ struct extended_stats_options_t {
 
 static const struct extended_stats_options_t extended_stats_options[] = {
 	{"", IFLA_STATS_LINK_64, NO_SUB_TYPE},
+	{"s",  IFLA_STATS_LINK_OFFLOAD_XSTATS, IFLA_OFFLOAD_XSTATS_CPU_HIT},
 };
 
 
