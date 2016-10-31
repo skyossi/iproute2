@@ -49,11 +49,14 @@ int pretty;
 double W;
 char **patterns;
 int npatterns;
+int filter_type;
+int sub_type;
 
 char info_source[128];
 int source_mismatch;
 
 #define MAXS (sizeof(struct rtnl_link_stats64)/sizeof(__u64))
+#define NO_SUB_TYPE 0xffff
 
 struct ifstat_ent {
 	struct ifstat_ent	*next;
@@ -124,7 +127,7 @@ static int get_nlmsg(const struct sockaddr_nl *who,
 		return -1;
 
 	parse_rtattr(tb, IFLA_STATS_MAX, IFLA_STATS_RTA(ifsm), len);
-	if (tb[IFLA_STATS_LINK_64] == NULL)
+	if (tb[filter_type] == NULL)
 		return 0;
 
 	n = malloc(sizeof(*n));
@@ -133,7 +136,17 @@ static int get_nlmsg(const struct sockaddr_nl *who,
 
 	n->ifindex = ifsm->ifindex;
 	n->name = strdup(ll_index_to_name(ifsm->ifindex));
-	memcpy(&n->ival, RTA_DATA(tb[IFLA_STATS_LINK_64]), sizeof(n->ival));
+
+	if (sub_type == NO_SUB_TYPE) {
+		memcpy(&n->ival, RTA_DATA(tb[filter_type]), sizeof(n->ival));
+	} else {
+		struct rtattr *attr;
+
+		attr = parse_rtattr_one_nested(sub_type, tb[filter_type]);
+		if (attr == NULL)
+			return 0;
+		memcpy(&n->ival, RTA_DATA(attr), sizeof(n->ival));
+	}
 	memset(&n->rate, 0, sizeof(n->rate));
 	for (i = 0; i < MAXS; i++)
 		n->val[i] = n->ival[i];
@@ -152,7 +165,7 @@ static void load_info(void)
 		exit(1);
 
 	ll_init_map(&rth);
-	filt_mask = IFLA_STATS_FILTER_BIT(IFLA_STATS_LINK_64);
+	filt_mask = IFLA_STATS_FILTER_BIT(filter_type);
 	if (rtnl_wilddump_stats_req_filter(&rth, AF_UNSPEC, RTM_GETSTATS,
 					   filt_mask) < 0) {
 		perror("Cannot send dump request");
@@ -659,24 +672,60 @@ static int verify_forging(int fd)
 	return -1;
 }
 
+static void xstat_usage(void)
+{
+	fprintf(stderr,
+"Usage: ifstat supported xstats:\n");
+
+}
+
+struct extended_stats_options_t {
+	char *name;
+	int id;
+	int sub_type;
+};
+
+static const struct extended_stats_options_t extended_stats_options[] = {
+	{"", IFLA_STATS_LINK_64, NO_SUB_TYPE},
+};
+
+
+static bool get_filter_type(char *name)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(extended_stats_options); i++) {
+		if (strcmp(name, extended_stats_options[i].name) == 0) {
+			filter_type = extended_stats_options[i].id;
+			sub_type = extended_stats_options[i].sub_type;
+			return true;
+		}
+	}
+
+	printf("invalid ifstat expansion %s\n", name);
+	xstat_usage();
+	return false;
+}
+
 static void usage(void) __attribute__((noreturn));
 
 static void usage(void)
 {
 	fprintf(stderr,
 "Usage: ifstat [OPTION] [ PATTERN [ PATTERN ] ]\n"
-"   -h, --help           this message\n"
-"   -a, --ignore         ignore history\n"
-"   -d, --scan=SECS      sample every statistics every SECS\n"
-"   -e, --errors         show errors\n"
-"   -j, --json           format output in JSON\n"
-"   -n, --nooutput       do history only\n"
-"   -p, --pretty         pretty print\n"
-"   -r, --reset          reset history\n"
-"   -s, --noupdate       don't update history\n"
-"   -t, --interval=SECS  report average over the last SECS\n"
-"   -V, --version        output version information\n"
-"   -z, --zeros          show entries with zero activity\n");
+"   -h, --help		this message\n"
+"   -a, --ignore	ignore history\n"
+"   -d, --scan=SECS	sample every statistics every SECS\n"
+"   -e, --errors	show errors\n"
+"   -j, --json          format output in JSON\n"
+"   -n, --nooutput	do history only\n"
+"   -p, --pretty        pretty print\n"
+"   -r, --reset		reset history\n"
+"   -s, --noupdate	don\'t update history\n"
+"   -t, --interval=SECS	report average over the last SECS\n"
+"   -V, --version	output version information\n"
+"   -z, --zeros		show entries with zero activity\n"
+"   -x, --extended=TYPE	show extended stats of TYPE\n");
 
 	exit(-1);
 }
@@ -694,6 +743,7 @@ static const struct option longopts[] = {
 	{ "interval", 1, 0, 't' },
 	{ "version", 0, 0, 'V' },
 	{ "zeros", 0, 0, 'z' },
+	{ "extended", 1, 0, 'x'},
 	{ 0 }
 };
 
@@ -702,10 +752,12 @@ int main(int argc, char *argv[])
 	char hist_name[128];
 	struct sockaddr_un sun;
 	FILE *hist_fp = NULL;
+	char stats_type[128];
 	int ch;
 	int fd;
 
-	while ((ch = getopt_long(argc, argv, "hjpvVzrnasd:t:e",
+	memset(stats_type, 0, 128);
+	while ((ch = getopt_long(argc, argv, "hjpvVzrnasd:t:ex:",
 			longopts, NULL)) != EOF) {
 		switch (ch) {
 		case 'z':
@@ -746,6 +798,9 @@ int main(int argc, char *argv[])
 				exit(-1);
 			}
 			break;
+		case 'x':
+			strncpy(stats_type, optarg, 127);
+			break;
 		case 'v':
 		case 'V':
 			printf("ifstat utility, iproute2-ss%s\n", SNAPSHOT);
@@ -759,6 +814,9 @@ int main(int argc, char *argv[])
 
 	argc -= optind;
 	argv += optind;
+
+	if (!get_filter_type(stats_type))
+		exit(-1);
 
 	sun.sun_family = AF_UNIX;
 	sun.sun_path[0] = 0;
@@ -798,8 +856,14 @@ int main(int argc, char *argv[])
 		snprintf(hist_name, sizeof(hist_name),
 			 "%s", getenv("IFSTAT_HISTORY"));
 	else
-		snprintf(hist_name, sizeof(hist_name),
-			 "%s/.ifstat.u%d", P_tmpdir, getuid());
+
+		if (strlen(stats_type) == 0)
+			snprintf(hist_name, sizeof(hist_name),
+				 "%s/.ifstat.u%d", P_tmpdir, getuid());
+		else
+			snprintf(hist_name, sizeof(hist_name),
+				 "%s/.%s_ifstat.u%d", P_tmpdir, stats_type,
+				 getuid());
 
 	if (reset_history)
 		unlink(hist_name);
