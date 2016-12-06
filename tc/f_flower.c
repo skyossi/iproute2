@@ -418,7 +418,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "enc_dst_port") == 0) {
 			NEXT_ARG();
-			ret = flower_parse_enc_port(*argv, TCA_FLOWER_KEY_ENC_UDP_DST, n);
+			ret = flower_parse_enc_port(*argv, TCA_FLOWER_KEY_ENC_UDP_DST_PORT, n);
 			if (ret < 0) {
 				fprintf(stderr, "Illegal \"enc_dst_port\"\n");
 				return -1;
@@ -688,7 +688,7 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 			    tb[TCA_FLOWER_KEY_ENC_KEY_ID]);
 
 	flower_print_enc_port(f, "enc_dst_port",
-			      tb[TCA_FLOWER_KEY_ENC_UDP_DST]);
+			      tb[TCA_FLOWER_KEY_ENC_UDP_DST_PORT]);
 
 	if (tb[TCA_FLOWER_FLAGS]) {
 		__u32 flags = rta_getattr_u32(tb[TCA_FLOWER_FLAGS]);
