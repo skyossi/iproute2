@@ -187,6 +187,7 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_ESWITCH_ENCAP_MODE	BIT(15)
 #define DL_OPT_RESOURCE_PATH	BIT(16)
 #define DL_OPT_RESOURCE_SIZE	BIT(17)
+#define DL_OPT_ESWITCH_MULTIPATH_MODE	BIT(18)
 
 struct dl_opts {
 	uint32_t present; /* flags of present items */
@@ -211,6 +212,7 @@ struct dl_opts {
 	uint32_t resource_size;
 	uint32_t resource_id;
 	bool resource_id_valid;
+	bool eswitch_multipath_mode;
 };
 
 struct dl {
@@ -316,6 +318,7 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_ESWITCH_MODE] = MNL_TYPE_U16,
 	[DEVLINK_ATTR_ESWITCH_INLINE_MODE] = MNL_TYPE_U8,
 	[DEVLINK_ATTR_ESWITCH_ENCAP_MODE] = MNL_TYPE_U8,
+	[DEVLINK_ATTR_ESWITCH_MULTIPATH_MODE] = MNL_TYPE_U8,
 	[DEVLINK_ATTR_DPIPE_TABLES] = MNL_TYPE_NESTED,
 	[DEVLINK_ATTR_DPIPE_TABLE] = MNL_TYPE_NESTED,
 	[DEVLINK_ATTR_DPIPE_TABLE_NAME] = MNL_TYPE_STRING,
@@ -792,6 +795,20 @@ static int eswitch_encap_mode_get(const char *typestr, bool *p_mode)
 	return 0;
 }
 
+static int eswitch_multipath_mode_get(const char *typestr, bool *p_mode)
+{
+	if (strcmp(typestr, "enable") == 0) {
+		*p_mode = true;
+	} else if (strcmp(typestr, "disable") == 0) {
+		*p_mode = false;
+	} else {
+		pr_err("Unknown eswitch multipath mode \"%s\"\n", typestr);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+
 static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			 uint32_t o_optional)
 {
@@ -973,6 +990,20 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			if (err)
 				return err;
 			o_found |= DL_OPT_RESOURCE_SIZE;
+		} else if (dl_argv_match(dl, "multipath") &&
+			   (o_all & DL_OPT_ESWITCH_MULTIPATH_MODE)) {
+			const char *typestr;
+
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &typestr);
+			if (err)
+				return err;
+			err = eswitch_multipath_mode_get(
+					typestr,
+					&opts->eswitch_multipath_mode);
+			if (err)
+				return err;
+			o_found |= DL_OPT_ESWITCH_MULTIPATH_MODE;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -1057,6 +1088,12 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 		return -EINVAL;
 	}
 
+	if ((o_required & DL_OPT_ESWITCH_MULTIPATH_MODE) &&
+	    !(o_found & DL_OPT_ESWITCH_MULTIPATH_MODE)) {
+		pr_err("E-Switch multipath option expected.\n");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -1121,6 +1158,9 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_RESOURCE_SIZE)
 		mnl_attr_put_u64(nlh, DEVLINK_ATTR_RESOURCE_SIZE,
 				 opts->resource_size);
+	if (opts->present & DL_OPT_ESWITCH_MULTIPATH_MODE)
+		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_MULTIPATH_MODE,
+				opts->eswitch_multipath_mode);
 }
 
 static int dl_argv_parse_put(struct nlmsghdr *nlh, struct dl *dl,
@@ -1519,6 +1559,12 @@ static void pr_out_eswitch(struct dl *dl, struct nlattr **tb)
 		pr_out_str(dl, "encap", encap_mode ? "enable" : "disable");
 	}
 
+	if (tb[DEVLINK_ATTR_ESWITCH_MULTIPATH_MODE]) {
+		bool mp_mode = !!mnl_attr_get_u8(tb[DEVLINK_ATTR_ESWITCH_MULTIPATH_MODE]);
+
+		pr_out_str(dl, "multipath", mp_mode ? "enable" : "disable");
+	}
+
 	pr_out_handle_end(dl);
 }
 
@@ -1564,7 +1610,8 @@ static int cmd_dev_eswitch_set(struct dl *dl)
 	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE,
 				DL_OPT_ESWITCH_MODE |
 				DL_OPT_ESWITCH_INLINE_MODE |
-				DL_OPT_ESWITCH_ENCAP_MODE);
+				DL_OPT_ESWITCH_ENCAP_MODE |
+				DL_OPT_ESWITCH_MULTIPATH_MODE);
 
 	if (err)
 		return err;
